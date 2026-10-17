@@ -84,8 +84,23 @@ function parsePositiveInteger(value, defaultValue) {
   return { value: parsed };
 }
 
-// List tasks with pagination.
+// List tasks with optional pagination.
 router.get("/", (req, res) => {
+  const allTasks = [...tasks.values()];
+  const total = allTasks.length;
+
+  const paginationRequested =
+    req.query.page !== undefined ||
+    req.query.limit !== undefined;
+
+  // Preserve the full-list response when pagination isn't requested.
+  if (!paginationRequested) {
+    return res.json({
+      data: allTasks,
+      total
+    });
+  }
+
   const pageResult = parsePositiveInteger(
     req.query.page,
     DEFAULT_PAGE
@@ -108,8 +123,8 @@ router.get("/", (req, res) => {
     });
   }
 
-  const { page } = pageResult;
-  const { limit } = limitResult;
+  const { value: page } = pageResult;
+  const { value: limit } = limitResult;
 
   if (limit > MAX_LIMIT) {
     return res.status(400).json({
@@ -117,13 +132,12 @@ router.get("/", (req, res) => {
     });
   }
 
-  const allTasks = [...tasks.values()];
-  const total = allTasks.length;
   const start = (page - 1) * limit;
   const data = allTasks.slice(start, start + limit);
 
   return res.json({
     data,
+    total,
     pagination: {
       page,
       limit,
@@ -132,6 +146,7 @@ router.get("/", (req, res) => {
     }
   });
 });
+
 
 // Get a task by ID.
 router.get("/:id", (req, res) => {
