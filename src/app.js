@@ -1,14 +1,16 @@
-require('dotenv').config();
+
+require("dotenv").config();
 
 const express = require("express");
-
 const { createHmac, timingSafeEqual } = require("node:crypto");
 const { router: tasksRouter } = require("./tasks");
+const errorHandler = require("./errors");
 
 const app = express();
 
 function authenticateUser(req, res, next) {
     const secret = process.env.JWT_SECRET;
+
     if (!secret) {
         return res.status(503).json({
             error: "Authentication is not configured"
@@ -19,7 +21,9 @@ function authenticateUser(req, res, next) {
     const match = authorization.match(/^Bearer ([^\s]+)$/);
 
     if (!match) {
-        return res.status(401).json({ error: "Valid bearer token required" });
+        return res.status(401).json({
+            error: "Valid bearer token required"
+        });
     }
 
     const parts = match[1].split(".");
@@ -66,7 +70,9 @@ function authenticateUser(req, res, next) {
             (payload.nbf !== undefined &&
                 (typeof payload.nbf !== "number" || payload.nbf > now))
         ) {
-            return res.status(401).json({ error: "Invalid or expired token" });
+            return res.status(401).json({
+                error: "Invalid or expired token"
+            });
         }
 
         req.userId = payload.sub;
@@ -84,5 +90,8 @@ app.use(
     express.json(),
     tasksRouter
 );
+
+// Must be registered after routes and body parsing.
+app.use(errorHandler);
 
 module.exports = app;
