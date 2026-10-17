@@ -84,6 +84,12 @@ function parsePositiveInteger(value, defaultValue) {
   return { value: parsed };
 }
 
+function serializeTask(task) {
+  const { ownerId, ...publicTask } = task;
+  return publicTask;
+}
+
+
 // List tasks with optional pagination.
 router.get("/", (req, res) => {
   const allTasks = [...tasks.values()].filter(
@@ -98,7 +104,7 @@ router.get("/", (req, res) => {
   // Preserve the full-list response when pagination isn't requested.
   if (!paginationRequested) {
     return res.json({
-      data: allTasks,
+      data: allTasks.map(serializeTask),
       total
     });
   }
@@ -138,7 +144,7 @@ router.get("/", (req, res) => {
   const data = allTasks.slice(start, start + limit);
 
   return res.json({
-    data,
+    data: data.map(serializeTask),
     total,
     pagination: {
       page,
@@ -158,7 +164,7 @@ router.get("/:id", (req, res) => {
     return res.status(404).json({ error: "Task not found" });
   }
 
-  return res.json({ data: task });
+  return res.json({ data: serializeTask(task) });
 });
 
 // Create a task.
@@ -189,10 +195,11 @@ router.post("/", (req, res) => {
 
   tasks.set(task.id, task);
 
-  return res.status(201).json({ data: task });
+  return res.status(201).json({ data: serializeTask(task) });
 });
 
 // Update a task.
+
 router.patch("/:id", (req, res) => {
   const existing = tasks.get(req.params.id);
 
@@ -214,12 +221,12 @@ router.patch("/:id", (req, res) => {
     changes.title = changes.title.trim();
   }
 
-  // Apply changes only after the entire payload is valid.
   const updated = { ...existing, ...changes };
   tasks.set(updated.id, updated);
 
-  return res.json({ data: updated });
+  return res.json({ data: serializeTask(updated) });
 });
+
 
 // Delete a task.
 // Delete a task owned by the current user.
