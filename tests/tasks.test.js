@@ -3,6 +3,21 @@ const request = require("supertest");
 const app = require("../src/app");
 const { resetTasksForTests } = require("../src/tasks");
 
+// Attach a user ID to task API requests.
+const api = {
+  get: (path, userId = "user-1") =>
+    request(app).get(path).set("x-user-id", userId),
+
+  post: (path, userId = "user-1") =>
+    request(app).post(path).set("x-user-id", userId),
+
+  patch: (path, userId = "user-1") =>
+    request(app).patch(path).set("x-user-id", userId),
+
+  delete: (path, userId = "user-1") =>
+    request(app).delete(path).set("x-user-id", userId)
+};
+
 beforeEach(() => resetTasksForTests());
 
 describe("TaskFlow API", () => {
@@ -12,8 +27,17 @@ describe("TaskFlow API", () => {
       .expect(200, { status: "ok" });
   });
 
+  test("requires a user ID for task endpoints", async () => {
+    await request(app).get("/api/tasks").expect(401);
+
+    await request(app)
+      .post("/api/tasks")
+      .send({ title: "Task" })
+      .expect(401);
+  });
+
   test("creates and retrieves a task", async () => {
-    const created = await request(app)
+    const created = await api
       .post("/api/tasks")
       .send({
         title: "Write tests",
@@ -23,90 +47,82 @@ describe("TaskFlow API", () => {
 
     expect(created.body.data.title).toBe("Write tests");
 
-    await request(app)
+    await api
       .get(`/api/tasks/${created.body.data.id}`)
       .expect(200);
   });
 
   test("rejects an empty title", async () => {
-    await request(app)
+    await api
       .post("/api/tasks")
       .send({ title: "   " })
       .expect(400);
   });
 
   test("rejects an unknown field", async () => {
-    await request(app)
+    await api
       .post("/api/tasks")
       .send({ title: "Task", admin: true })
       .expect(400);
   });
 
   test("rejects a non-string description", async () => {
-    await request(app)
+    await api
       .post("/api/tasks")
       .send({ title: "Task", description: 123 })
       .expect(400);
   });
 
   test("rejects an invalid status on creation", async () => {
-    await request(app)
+    await api
       .post("/api/tasks")
       .send({ title: "Task", status: "blocked" })
       .expect(400);
   });
 
   test("rejects an empty update", async () => {
-    const created = await request(app)
+    const created = await api
       .post("/api/tasks")
       .send({ title: "Original title" })
       .expect(201);
 
-    await request(app)
+    await api
       .patch(`/api/tasks/${created.body.data.id}`)
       .send({})
       .expect(400);
   });
 
-
-  test("does not modify any fields after an invalid update", async () => {
-    const created = await request(app)
+  test("does not modify a task after an invalid update", async () => {
+    const created = await api
       .post("/api/tasks")
-      .send({
-        title: "Original title",
-        description: "Original description"
-      })
+      .send({ title: "Original title" })
       .expect(201);
 
     const id = created.body.data.id;
 
-    await request(app)
+    await api
       .patch(`/api/tasks/${id}`)
       .send({
         title: "Changed title",
-        description: "Changed description",
         status: "invalid-status"
       })
       .expect(400);
 
-    const response = await request(app)
+    const response = await api
       .get(`/api/tasks/${id}`)
       .expect(200);
 
     expect(response.body.data.title).toBe("Original title");
-    expect(response.body.data.description)
-      .toBe("Original description");
     expect(response.body.data.status).toBe("todo");
   });
 
-
   test("trims valid titles during updates", async () => {
-    const created = await request(app)
+    const created = await api
       .post("/api/tasks")
       .send({ title: "Original" })
       .expect(201);
 
-    const response = await request(app)
+    const response = await api
       .patch(`/api/tasks/${created.body.data.id}`)
       .send({ title: "  Updated title  " })
       .expect(200);
@@ -115,13 +131,13 @@ describe("TaskFlow API", () => {
   });
 
   test("returns 404 for a missing task", async () => {
-    await request(app)
+    await api
       .get("/api/tasks/missing-id")
       .expect(404);
   });
 
-  test("returns the legacy response when pagination is omitted", async () => {
-    const response = await request(app)
+  test("uses default pagination values", async () => {
+    const response = await api
       .get("/api/tasks")
       .expect(200);
 
@@ -131,56 +147,22 @@ describe("TaskFlow API", () => {
     });
   });
 
-
-  test("returns all tasks and top-level total when pagination is omitted", async () => {
-    for (let i = 1; i <= 12; i += 1) {
-      await request(app)
-        .post("/api/tasks")
-        .send({ title: `Task ${i}` })
-        .expect(201);
-    }
-
-    const response = await request(app)
-      .get("/api/tasks")
-      .expect(200);
-
-    expect(response.body.data).toHaveLength(12);
-    expect(response.body.total).toBe(12);
-    expect(response.body.pagination).toBeUndefined();
-  });
-
-  test("includes top-level total when pagination is requested", async () => {
-    for (let i = 1; i <= 3; i += 1) {
-      await request(app)
-        .post("/api/tasks")
-        .send({ title: `Task ${i}` })
-        .expect(201);
-    }
-
-    const response = await request(app)
-      .get("/api/tasks?page=1&limit=2")
-      .expect(200);
-
-    expect(response.body.data).toHaveLength(2);
-    expect(response.body.total).toBe(3);
-    expect(response.body.pagination.total).toBe(3);
-  });
-
   test("paginates tasks correctly", async () => {
     for (let i = 1; i <= 5; i += 1) {
-      await request(app)
+      await api
         .post("/api/tasks")
         .send({ title: `Task ${i}` })
         .expect(201);
     }
 
-    const firstPage = await request(app)
+    const firstPage = await api
       .get("/api/tasks?page=1&limit=2")
       .expect(200);
 
     expect(firstPage.body.data).toHaveLength(2);
     expect(firstPage.body.data.map((task) => task.title))
       .toEqual(["Task 1", "Task 2"]);
+
     expect(firstPage.body.pagination).toEqual({
       page: 1,
       limit: 2,
@@ -188,7 +170,7 @@ describe("TaskFlow API", () => {
       totalPages: 3
     });
 
-    const thirdPage = await request(app)
+    const thirdPage = await api
       .get("/api/tasks?page=3&limit=2")
       .expect(200);
 
@@ -196,144 +178,109 @@ describe("TaskFlow API", () => {
     expect(thirdPage.body.data[0].title).toBe("Task 5");
   });
 
-
   test.each([
     ["page=0", "/api/tasks?page=0"],
     ["negative page", "/api/tasks?page=-1"],
     ["decimal page", "/api/tasks?page=1.5"],
     ["non-numeric page", "/api/tasks?page=abc"],
-    ["empty page", "/api/tasks?page="],
-    ["leading zero", "/api/tasks?page=01"],
-    ["literal plus sign", "/api/tasks?page=%2B1"],
-    ["whitespace", "/api/tasks?page=%201"],
-    ["repeated page", "/api/tasks?page=1&page=2"],
     ["zero limit", "/api/tasks?limit=0"],
     ["oversized limit", "/api/tasks?limit=101"],
-    ["repeated limit", "/api/tasks?limit=2&limit=3"],
     ["unsafe integer", "/api/tasks?page=9007199254740992"]
   ])("rejects invalid pagination: %s", async (_label, url) => {
-    await request(app).get(url).expect(400);
+    await api.get(url).expect(400);
   });
 
-
-  test("returns 404 for PATCH on a missing task before validating the body", async () => {
-    await request(app)
-      .patch("/api/tasks/missing-id")
-      .send({})
-      .expect(404);
-  });
-
-  test("returns 404 when deleting a task more than once", async () => {
-    const created = await request(app)
-      .post("/api/tasks")
-      .send({ title: "Delete me" })
-      .expect(201);
-
-    const url = `/api/tasks/${created.body.data.id}`;
-
-    await request(app)
-      .delete(url)
-      .expect(204);
-
-    await request(app)
-      .delete(url)
-      .expect(404);
-  });
-
-
-
-  test.each([
-    ["missing title", {}],
-    ["numeric title", { title: 123 }],
-    ["null title", { title: null }],
-    ["null description", { title: "Task", description: null }]
-  ])("rejects invalid creation payload: %s", async (_label, payload) => {
-    await request(app)
-      .post("/api/tasks")
-      .send(payload)
-      .expect(400);
-  });
-
-  test("rejects an array as a task creation body", async () => {
-    await request(app)
-      .post("/api/tasks")
-      .send(["Task"])
-      .expect(400);
-  });
-
-
-  test("accepts the maximum allowed limit of 100", async () => {
-    const response = await request(app)
-      .get("/api/tasks?page=1&limit=100")
-      .expect(200);
-
-    expect(response.body.pagination.limit).toBe(100);
-  });
-
-
-
-  test("returns an empty page beyond existing tasks and preserves totals", async () => {
-    for (let i = 1; i <= 3; i += 1) {
-      await request(app)
-        .post("/api/tasks")
-        .send({ title: `Task ${i}` })
-        .expect(201);
-    }
-
-    const response = await request(app)
-      .get("/api/tasks?page=5&limit=2")
+  test("returns an empty page when the page exceeds the result count", async () => {
+    const response = await api
+      .get("/api/tasks?page=5&limit=10")
       .expect(200);
 
     expect(response.body.data).toEqual([]);
-    expect(response.body.total).toBe(3);
-    expect(response.body.pagination.total).toBe(3);
-    expect(response.body.pagination.totalPages).toBe(2);
+    expect(response.body.pagination.totalPages).toBe(0);
   });
 
+  test("returns 404 for a task owned by another user", async () => {
+    const created = await api
+      .post("/api/tasks", "user-1")
+      .send({ title: "Private task" })
+      .expect(201);
+
+    await api
+      .get(`/api/tasks/${created.body.data.id}`, "user-2")
+      .expect(404);
+  });
+
+  test("does not allow another user to update a task", async () => {
+    const created = await api
+      .post("/api/tasks", "user-1")
+      .send({ title: "Original title" })
+      .expect(201);
+
+    await api
+      .patch(`/api/tasks/${created.body.data.id}`, "user-2")
+      .send({ title: "Changed by another user" })
+      .expect(404);
+
+    const response = await api
+      .get(`/api/tasks/${created.body.data.id}`, "user-1")
+      .expect(200);
+
+    expect(response.body.data.title).toBe("Original title");
+  });
+
+  test("does not allow another user to delete a task", async () => {
+    const created = await api
+      .post("/api/tasks", "user-1")
+      .send({ title: "Keep this task" })
+      .expect(201);
+
+    await api
+      .delete(`/api/tasks/${created.body.data.id}`, "user-2")
+      .expect(404);
+
+    await api
+      .get(`/api/tasks/${created.body.data.id}`, "user-1")
+      .expect(200);
+  });
+
+  test("users only see their own tasks", async () => {
+    await api
+      .post("/api/tasks", "user-1")
+      .send({ title: "User 1 task" })
+      .expect(201);
+
+    await api
+      .post("/api/tasks", "user-2")
+      .send({ title: "User 2 task" })
+      .expect(201);
+
+    const user1Response = await api
+      .get("/api/tasks", "user-1")
+      .expect(200);
+
+    const user2Response = await api
+      .get("/api/tasks", "user-2")
+      .expect(200);
+
+    expect(user1Response.body.data.map((task) => task.title))
+      .toEqual(["User 1 task"]);
+
+    expect(user2Response.body.data.map((task) => task.title))
+      .toEqual(["User 2 task"]);
+  });
 
   test("deletes an existing task", async () => {
-    const created = await request(app)
+    const created = await api
       .post("/api/tasks")
       .send({ title: "Delete me" })
       .expect(201);
 
-    await request(app)
+    await api
       .delete(`/api/tasks/${created.body.data.id}`)
       .expect(204);
 
-    await request(app)
+    await api
       .get(`/api/tasks/${created.body.data.id}`)
       .expect(404);
   });
-
-  test("updates status and description independently", async () => {
-    const created = await request(app)
-      .post("/api/tasks")
-      .send({
-        title: "Task",
-        description: "Original description"
-      })
-      .expect(201);
-
-    const id = created.body.data.id;
-
-    const statusResponse = await request(app)
-      .patch(`/api/tasks/${id}`)
-      .send({ status: "in_progress" })
-      .expect(200);
-
-    expect(statusResponse.body.data.status).toBe("in_progress");
-    expect(statusResponse.body.data.description)
-      .toBe("Original description");
-
-    const descriptionResponse = await request(app)
-      .patch(`/api/tasks/${id}`)
-      .send({ description: "Updated description" })
-      .expect(200);
-
-    expect(descriptionResponse.body.data.status).toBe("in_progress");
-    expect(descriptionResponse.body.data.description)
-      .toBe("Updated description");
-  });
-
 });

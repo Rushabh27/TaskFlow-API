@@ -86,7 +86,9 @@ function parsePositiveInteger(value, defaultValue) {
 
 // List tasks with optional pagination.
 router.get("/", (req, res) => {
-  const allTasks = [...tasks.values()];
+  const allTasks = [...tasks.values()].filter(
+    (task) => task.ownerId === req.userId
+  );
   const total = allTasks.length;
 
   const paginationRequested =
@@ -152,7 +154,7 @@ router.get("/", (req, res) => {
 router.get("/:id", (req, res) => {
   const task = tasks.get(req.params.id);
 
-  if (!task) {
+  if (!task || task.ownerId !== req.userId) {
     return res.status(404).json({ error: "Task not found" });
   }
 
@@ -178,6 +180,7 @@ router.post("/", (req, res) => {
 
   const task = {
     id: randomUUID(),
+    ownerId: req.userId,
     title: title.trim(),
     description,
     status,
@@ -193,7 +196,7 @@ router.post("/", (req, res) => {
 router.patch("/:id", (req, res) => {
   const existing = tasks.get(req.params.id);
 
-  if (!existing) {
+  if (!existing || existing.ownerId !== req.userId) {
     return res.status(404).json({ error: "Task not found" });
   }
 
@@ -219,12 +222,15 @@ router.patch("/:id", (req, res) => {
 });
 
 // Delete a task.
+// Delete a task owned by the current user.
 router.delete("/:id", (req, res) => {
-  const deleted = tasks.delete(req.params.id);
+  const task = tasks.get(req.params.id);
 
-  if (!deleted) {
+  if (!task || task.ownerId !== req.userId) {
     return res.status(404).json({ error: "Task not found" });
   }
+
+  tasks.delete(req.params.id);
 
   return res.status(204).send();
 });
