@@ -84,9 +84,17 @@ function parsePositiveInteger(value, defaultValue) {
   return { value: parsed };
 }
 
+function serializeTask(task) {
+  const { ownerId, ...publicTask } = task;
+  return publicTask;
+}
+
+
 // List tasks with optional pagination.
 router.get("/", (req, res) => {
-  const allTasks = [...tasks.values()];
+  const allTasks = [...tasks.values()].filter(
+    (task) => task.ownerId === req.userId
+  );
   const total = allTasks.length;
 
   const paginationRequested =
@@ -96,7 +104,7 @@ router.get("/", (req, res) => {
   // Preserve the full-list response when pagination isn't requested.
   if (!paginationRequested) {
     return res.json({
-      data: allTasks,
+      data: allTasks.map(serializeTask),
       total
     });
   }
@@ -136,7 +144,7 @@ router.get("/", (req, res) => {
   const data = allTasks.slice(start, start + limit);
 
   return res.json({
-    data,
+    data: data.map(serializeTask),
     total,
     pagination: {
       page,
@@ -152,11 +160,11 @@ router.get("/", (req, res) => {
 router.get("/:id", (req, res) => {
   const task = tasks.get(req.params.id);
 
-  if (!task) {
+  if (!task || task.ownerId !== req.userId) {
     return res.status(404).json({ error: "Task not found" });
   }
 
-  return res.json({ data: task });
+  return res.json({ data: serializeTask(task) });
 });
 
 // Create a task.
@@ -178,6 +186,7 @@ router.post("/", (req, res) => {
 
   const task = {
     id: randomUUID(),
+    ownerId: req.userId,
     title: title.trim(),
     description,
     status,
@@ -186,14 +195,15 @@ router.post("/", (req, res) => {
 
   tasks.set(task.id, task);
 
-  return res.status(201).json({ data: task });
+  return res.status(201).json({ data: serializeTask(task) });
 });
 
 // Update a task.
+
 router.patch("/:id", (req, res) => {
   const existing = tasks.get(req.params.id);
 
-  if (!existing) {
+  if (!existing || existing.ownerId !== req.userId) {
     return res.status(404).json({ error: "Task not found" });
   }
 
@@ -211,20 +221,23 @@ router.patch("/:id", (req, res) => {
     changes.title = changes.title.trim();
   }
 
-  // Apply changes only after the entire payload is valid.
   const updated = { ...existing, ...changes };
   tasks.set(updated.id, updated);
 
-  return res.json({ data: updated });
+  return res.json({ data: serializeTask(updated) });
 });
 
-// Delete a task.
-router.delete("/:id", (req, res) => {
-  const deleted = tasks.delete(req.params.id);
 
-  if (!deleted) {
+// Delete a task.
+// Delete a task owned by the current user.
+router.delete("/:id", (req, res) => {
+  const task = tasks.get(req.params.id);
+
+  if (!task || task.ownerId !== req.userId) {
     return res.status(404).json({ error: "Task not found" });
   }
+
+  tasks.delete(req.params.id);
 
   return res.status(204).send();
 });
